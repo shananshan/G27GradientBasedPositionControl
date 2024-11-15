@@ -1,147 +1,162 @@
-#include "LineSensors.h"
-#include "Motors.h"
+#include <Adafruit_SSD1306.h>
+#include <splash.h>
 #include "Button.h"
-#include <math.h>
-#include <PololuOLED.h>
-#include <EEPROM.h>
-#include <Wire.h>
 
-PololuSH1106 display(1, 30, 0, 17, 13);
+#ifndef _LINESENSORS_H
+#define _LINESENSORS_H
+#define NUM_SENSORS 5
+const int sensor_pins[ NUM_SENSORS ] = { A11, A0, A2, A3, A4 };
+float threshold = 0;  // 250--greyvalue:56
+#define EMIT_PIN   11
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define MOVING (0)
-#define STOP (1)
+class LineSensors_c {
+  
+  public:
+    float readings[ NUM_SENSORS ];
+    float minimum[ NUM_SENSORS ];
+    float maximum[ NUM_SENSORS ];
+    float scaling[ NUM_SENSORS ];
+    float calibrated[ NUM_SENSORS ];
+    float error[NUM_SENSORS];
 
-Motors_c motors;
-LineSensors_c line_sensors;
-Button_c button;
+//    // button
+//    Button_c maxbutton(A_button);
+//    Button_c minbutton(B_button);
+//    Button_c desbutton(C_button);
+    Button_c button;
 
-
-unsigned long start_millis = 0;
-unsigned long current_real_millis = 0;
-
-// line sensors update
-unsigned long set_update_end = 0;
-unsigned long set_update_duration = 20;
-
-// speed update
-unsigned long set_wheel_duration = 20;
-unsigned long set_wheel_end = 0;
-float left_wheel = 0.0f;
-float right_wheel = 0.0f;
-float lspeed = 20.0f;
-float rspeed = 20.0f;
-
-unsigned long state = MOVING;
-
-void setup() {
-  // put your setup code here, to run once:
-  delay(1000);  
-  pinMode(LED_BUILTIN, OUTPUT);
-  // initialise
-  Wire.begin();
-  motors.initialise();
-  line_sensors.initialiseForADC();
-  button.initialiseForButton();
-
-  // calibrate
-  digitalWrite(LED_BUILTIN, HIGH);
-  motors.setPWM(lspeed,rspeed);
-  line_sensors.calibrateSensors();
-  digitalWrite(LED_BUILTIN, LOW);
-  motors.setPWM(0,0);
-  line_sensors.setDestination();
-  Serial.println("******************************************");
-//  motors.setPWM(0,0);
-
-  display.init();
-  display.clear();
-
-  // show the calibration data
-  displaycali();
-
-  delay(5000);
-  display.clear();
-  start_millis = millis();
-}
-
-void loop() {
-  // put your main code here, to run repeatedly:
-  checkWheel();
-  checkUpdate();
-  current_real_millis = millis() - start_millis;
-  if (state == MOVING){
-    if (line_sensors.arrived(2)){
-      displaySensorData();
-//      digitalWrite(LED_BUILTIN, HIGH);
-      Serial.println("Arrived");
-      setStop();  
-      state = STOP; 
+    // Constructor, must exist.
+    LineSensors_c() {
+      // leave this empty
     }
-    else {
-      digitalWrite(LED_BUILTIN, HIGH);
-      Serial.println("Not arrived");
-      setWheel(lspeed,rspeed);
-      displayMoving();
+
+    void initialiseForADC() {
+      pinMode( EMIT_PIN, OUTPUT );
+      digitalWrite( EMIT_PIN, HIGH );
+      for( int sensor = 0; sensor < NUM_SENSORS; sensor++ ) {
+        pinMode(sensor_pins[sensor], INPUT_PULLUP);
+      }
+      
+    } // End of initialiseForADC()
+
+    void readSensorsADC() {
+      initialiseForADC();
+      for( int sensor = 0; sensor < NUM_SENSORS; sensor++ ) {
+        readings[sensor] = analogRead(sensor_pins[sensor]);
+      }
+    } // End of readSensorsADC()
+
+    void calibrateSensors() {
+      Serial.println("Calibrating sensors, ensure the sensors pass over both the white surface and the black line.");
+      for (int sensor = 0; sensor < NUM_SENSORS; sensor++) {
+        minimum[sensor] = 1023;
+        maximum[sensor] = 0;
+      }
+      unsigned long startTime = millis();
+      while (millis() - startTime < 3000) {  //20--5000
+        readSensorsADC();
+        for (int sensor = 0; sensor < NUM_SENSORS; sensor++) {
+          if (readings[sensor] < minimum[sensor]) {
+              minimum[sensor] = readings[sensor];
+          }
+          if (readings[sensor] > maximum[sensor]) {
+              maximum[sensor] = readings[sensor];
+          }
+        }
+      }
+      Serial.println("Sensor 2");
+      Serial.print(": Min = ");
+      Serial.print(minimum[2]);
+      Serial.print(", Max = ");
+      Serial.println(maximum[2]);
+      // 打印校准值
+      for (int sensor = 0; sensor < NUM_SENSORS; sensor++) {        
+        scaling[sensor] = maximum[sensor] - minimum[sensor];
+        error[sensor] = scaling[sensor]/10000;
+      }
     }
-  }else{
-      Serial.println("Unknown state or STOP");
-  }
-//  displaySensorData();
-  display.display();
-}
 
-void checkUpdate() {
-    if (millis() > set_update_end) {
-        line_sensors.calcCalibratedADC();
-        set_update_end = millis() + set_update_duration;
+    void calcCalibratedADC() {
+      readSensorsADC();
+      for( int sensor = 0; sensor < NUM_SENSORS; sensor++ ) {
+        calibrated[sensor] = (readings[sensor] - minimum[sensor]) / scaling[sensor];
+        // pint
+//        calibrated[sensor] = (readings[sensor] - minimum[sensor]);
+//        Serial.print(calibrated[0]);
+//        Serial.print(",");
+//        Serial.print(calibrated[1]);
+//        Serial.print(",");
+        Serial.println(calibrated[2]);
+//        Serial.print(",");
+//        Serial.print(calibrated[3]);
+//        Serial.print(",");
+//        Serial.print(calibrated[4]);
+//        Serial.print("\n");
+      }
+    } // End of calcCalibratedADC()
+
+    float setDestination(){
+      Serial.println(threshold);
+      while (threshold == 0) {
+        calcCalibratedADC();
+        while (button.AisPressed()) {
+          Serial.println(calibrated[2]);
+          threshold = calibrated[2];
+          Serial.print("Destination is");
+          Serial.println(threshold);
+          break;  // Exit the loop once threshold is set
+        }
+      }
+      return threshold;
     }
-}
 
-void setStop() {
-    setWheel(0, 0);
-}
+    bool arrived( int sensor ){
+      if ( calibrated[sensor] > threshold-error[sensor] && calibrated[sensor] < threshold+error[sensor]){
+        return true;
+      }
+      return false;
+    }
 
-void setWheel(float x, float y) {
-    left_wheel = x;
-    right_wheel = y;
-}
+    float getcalibrated(int sensor){
+      float value = calibrated[sensor];
+      return value;
+    }
 
-void checkWheel() {
-   if (millis() > set_wheel_end) {
-       motors.setPWM(left_wheel, right_wheel);
-       setWheel(left_wheel, right_wheel);
-       set_wheel_end = millis() + set_wheel_duration;
-   }
-}
-void displayMoving() {
-  display.setLayout11x4();
-  display.gotoXY(0, 0);
-  display.print("sensor2......");
-  display.gotoXY(0, 1);
-  display.println(line_sensors.getcalibrated(2));
-//  display.display();
-}
-void displaySensorData() {
-  display.setLayout8x2();
-  display.gotoXY(0, 0);
-  display.print("sensor2");
-  display.gotoXY(0, 1);
-  display.println(line_sensors.getcalibrated(2));
-//  display.display();
-}
-void displaycali(){
-  display.setLayout11x4();
-  display.gotoXY(0, 0);
-  display.print("min:");
-  display.println(line_sensors.getmin(2));
-  display.gotoXY(0, 1);
-  display.print("max:");
-  display.println(line_sensors.getmax(2));
-  display.gotoXY(0, 2);
-  display.print("destination");
-  display.gotoXY(0, 3);
-  display.println(line_sensors.getdes());
-//  display.display();
-}
+    float getmax(int sensor){
+      float maxvalue = maximum[sensor];
+      return maxvalue;
+    }
+
+    float getmin(int sensor){
+      float minvalue = minimum[sensor];
+      return minvalue;
+    }
+
+    float getdes(){
+      float desvalue = threshold;
+      return desvalue;
+    }
+
+
+
+/*
+ * Digital
+ */
+    void initialiseForDigital() {
+      // Ensure that the IR LEDs are on for line sensing
+//      pinMode( EMIT_PIN, OUTPUT );
+//      digitalWrite( EMIT_PIN, HIGH );
+    } // End of initialiseForDigital()
+
+    void readSensorsDigital() {
+//      digitalWrite(EMIT_PIN, HIGH);
+//      pinMode(sensorPin, OUTPUT);
+//      digitalWrite(sensorPin, HIGH);
+    } // End of readSensorsDigital()
+
+
+}; // End of LineSensor_c class defintion
+
+
+
+#endif
