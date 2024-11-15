@@ -1,17 +1,22 @@
 #include "LineSensors.h"
 #include "Motors.h"
+#include "Button.h"
 #include <math.h>
 #include <PololuOLED.h>
+#include <EEPROM.h>
+#include <Wire.h>
 
 PololuSH1106 display(1, 30, 0, 17, 13);
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define MOVING (1)
-#define STOP (2)
+#define MOVING (0)
+#define STOP (1)
 
 Motors_c motors;
 LineSensors_c line_sensors;
+Button_c button;
+
 
 unsigned long start_millis = 0;
 unsigned long current_real_millis = 0;
@@ -25,11 +30,8 @@ unsigned long set_wheel_duration = 20;
 unsigned long set_wheel_end = 0;
 float left_wheel = 0.0f;
 float right_wheel = 0.0f;
-float lspeed = 19.0f;
+float lspeed = 20.0f;
 float rspeed = 20.0f;
-
-// threshold
-//float threshold = 128;
 
 unsigned long state = MOVING;
 
@@ -38,22 +40,29 @@ void setup() {
   delay(1000);  
   pinMode(LED_BUILTIN, OUTPUT);
   // initialise
+  Wire.begin();
   motors.initialise();
   line_sensors.initialiseForADC();
+  button.initialiseForButton();
+
+  // calibrate
+  digitalWrite(LED_BUILTIN, HIGH);
+  motors.setPWM(lspeed,rspeed);
+  line_sensors.calibrateSensors();
+  digitalWrite(LED_BUILTIN, LOW);
+  motors.setPWM(0,0);
+  line_sensors.setDestination();
+  Serial.println("******************************************");
+//  motors.setPWM(0,0);
+
   display.init();
   display.clear();
-  display.print("Hello, OLED!"); 
-  
-  // calibrate
-  motors.setPWM(-lspeed, rspeed);
-  digitalWrite(LED_BUILTIN, HIGH);
-  line_sensors.calibrateSensors();
-  motors.setPWM(lspeed, -rspeed);
-  line_sensors.calibrateSensors();
-  motors.setPWM(0,0);
-  digitalWrite(LED_BUILTIN, LOW);
 
-  delay(1000);
+  // show the calibration data
+  displaycali();
+
+  delay(5000);
+  display.clear();
   start_millis = millis();
 }
 
@@ -62,16 +71,25 @@ void loop() {
   checkWheel();
   checkUpdate();
   current_real_millis = millis() - start_millis;
-  if (line_sensors.arrived(2)){
-    digitalWrite(LED_BUILTIN, HIGH);
-    setStop();   
+  if (state == MOVING){
+    if (line_sensors.arrived(2)){
+      displaySensorData();
+//      digitalWrite(LED_BUILTIN, HIGH);
+      Serial.println("Arrived");
+      setStop();  
+      state = STOP; 
+    }
+    else {
+      digitalWrite(LED_BUILTIN, HIGH);
+      Serial.println("Not arrived");
+      setWheel(lspeed,rspeed);
+      displayMoving();
+    }
+  }else{
+      Serial.println("Unknown state or STOP");
   }
-  else {
-    digitalWrite(LED_BUILTIN, LOW);
-    setWheel(lspeed,rspeed);
-  }
-  
-  displaySensorData();
+//  displaySensorData();
+  display.display();
 }
 
 void checkUpdate() {
@@ -85,11 +103,6 @@ void setStop() {
     setWheel(0, 0);
 }
 
-void setForward() {
-    setWheel(lspeed, rspeed);
-}
-
-
 void setWheel(float x, float y) {
     left_wheel = x;
     right_wheel = y;
@@ -102,11 +115,33 @@ void checkWheel() {
        set_wheel_end = millis() + set_wheel_duration;
    }
 }
-
-void displaySensorData() {
+void displayMoving() {
+  display.setLayout11x4();
   display.gotoXY(0, 0);
-  display.print("sensor 2");
+  display.print("sensor2......");
   display.gotoXY(0, 1);
   display.println(line_sensors.getcalibrated(2));
-  display.display();
+//  display.display();
+}
+void displaySensorData() {
+  display.setLayout8x2();
+  display.gotoXY(0, 0);
+  display.print("sensor2");
+  display.gotoXY(0, 1);
+  display.println(line_sensors.getcalibrated(2));
+//  display.display();
+}
+void displaycali(){
+  display.setLayout11x4();
+  display.gotoXY(0, 0);
+  display.print("min:");
+  display.println(line_sensors.getmin(2));
+  display.gotoXY(0, 1);
+  display.print("max:");
+  display.println(line_sensors.getmax(2));
+  display.gotoXY(0, 2);
+  display.print("destination");
+  display.gotoXY(0, 3);
+  display.println(line_sensors.getdes());
+//  display.display();
 }
