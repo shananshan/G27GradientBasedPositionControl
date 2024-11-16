@@ -53,7 +53,7 @@ class LineSensors_c {
         maximum[sensor] = 0;
       }
       unsigned long startTime = millis();
-      while (millis() - startTime < 3000) {  //20--5000
+      while (!button.AisPressed()) {  //20--5000
         readSensorsADC();
         for (int sensor = 0; sensor < NUM_SENSORS; sensor++) {
           if (readings[sensor] < minimum[sensor]) {
@@ -72,21 +72,22 @@ class LineSensors_c {
       // 打印校准值
       for (int sensor = 0; sensor < NUM_SENSORS; sensor++) {        
         scaling[sensor] = maximum[sensor] - minimum[sensor];
-        error[sensor] = scaling[sensor]/10000;
+        error[sensor] = 0;
       }
     }
 
     void calcCalibratedADC() {
       readSensorsADC();
       for( int sensor = 0; sensor < NUM_SENSORS; sensor++ ) {
-        calibrated[sensor] = (readings[sensor] - minimum[sensor]) / scaling[sensor];
+//        percentage[sensor] = (readings[sensor] - minimum[sensor]) / scaling[sensor];
+        calibrated[sensor] = (readings[sensor] - minimum[sensor]);
         // pint
-//        calibrated[sensor] = (readings[sensor] - minimum[sensor]);
 //        Serial.print(calibrated[0]);
 //        Serial.print(",");
 //        Serial.print(calibrated[1]);
 //        Serial.print(",");
         Serial.println(calibrated[2]);
+        Serial.println(threshold);
 //        Serial.print(",");
 //        Serial.print(calibrated[3]);
 //        Serial.print(",");
@@ -111,7 +112,7 @@ class LineSensors_c {
     }
 
     bool arrived( int sensor ){
-      if ( calibrated[sensor] > threshold-error[sensor] && calibrated[sensor] < threshold+error[sensor]){
+      if ( calibrated[sensor] >= threshold-error[sensor]){
         return true;
       }
       return false;
@@ -119,6 +120,10 @@ class LineSensors_c {
 
     float getcalibrated(int sensor){
       float value = calibrated[sensor];
+      return value;
+    }
+    float getpercentage(){
+      float value = calibrated[2]/scaling[2];
       return value;
     }
 
